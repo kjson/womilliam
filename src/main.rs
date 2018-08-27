@@ -2,7 +2,9 @@ extern crate tokio;
 #[macro_use]
 extern crate futures;
 extern crate bytes;
+extern crate clap;
 
+use clap::{Arg, App};
 use tokio::io;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
@@ -13,6 +15,8 @@ use bytes::{BytesMut, Bytes, BufMut};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
+use std::net::{IpAddr, Ipv4Addr};
+
 
 
 /// Shorthand for the transmit half of the message channel.
@@ -222,12 +226,31 @@ fn process(socket: TcpStream, state: Arc<Mutex<Shared>>) {
 }
 
 fn main() {
+
+    // Read command line arguments if there are any.
+    let matches = App::new("Womilliam")
+        .version("0.0")
+        .about("A simple chat service.")
+        .arg(
+            Arg::with_name("port")
+                .short("p")
+                .long("port")
+                .value_name("PORT")
+                .help("Sets the servers port number."),
+        )
+        .get_matches();
+
+    // Bind to a port and listen to connections.
+    let port = matches
+        .value_of("port")
+        .unwrap_or("6142")
+        .parse::<u16>()
+        .unwrap();
+    let socket = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), port);
+    let listener = TcpListener::bind(&socket).unwrap();
+
     // Shared map of peers to transmission channel
     let state = Arc::new(Mutex::new(Shared::new()));
-
-    // TODO command line args.
-    let addr = "127.0.0.1:6142".parse().unwrap();
-    let listener = TcpListener::bind(&addr).unwrap();
 
     let server = listener
         .incoming()
@@ -239,7 +262,7 @@ fn main() {
             println!("Connection error: {:?}", err);
         });
 
-    println!("server running on localhost:6142");
+    println!("Server listens on port {}", port);
 
     tokio::run(server);
 
