@@ -1,21 +1,25 @@
-extern crate tokio;
+#[macro_use]
+extern crate log;
 #[macro_use]
 extern crate futures;
-extern crate bytes;
-extern crate clap;
 
+extern crate bytes;
+extern crate chrono;
+extern crate clap;
+extern crate fern;
+extern crate tokio;
+
+use bytes::{BytesMut, Bytes, BufMut};
 use clap::{Arg, App};
+use futures::sync::mpsc;
+use futures::future::{self, Either};
 use tokio::io;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
-use futures::sync::mpsc;
-use futures::future::{self, Either};
-use bytes::{BytesMut, Bytes, BufMut};
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, IpAddr, Ipv4Addr};
 use std::sync::{Arc, Mutex};
-use std::net::{IpAddr, Ipv4Addr};
 
 
 
@@ -170,10 +174,9 @@ impl Future for Peer {
 
             if let Some(message) = line {
                 let mut line = self.name.clone();
+
                 line.put(": ");
                 line.put(&message);
-                println!("{:#?}", line.clone());
-
                 line.put("\r\n");
 
                 // We must make this line immutable so that it can be cloned without copying.
@@ -212,20 +215,39 @@ fn process(socket: TcpStream, state: Arc<Mutex<Shared>>) {
                 }
             };
 
-            println!("`{:?}` is joining the chat", name);
+            info!("`{:?}` is joining the chat", name);
 
 
             let peer = Peer::new(name, state, lines);
             Either::B(peer)
         })
         .map_err(|e| {
-            println!("connection error = {:?}", e);
+            error!("connection error = {:?}", e);
         });
 
     tokio::spawn(connection);
 }
 
+fn setup_logger(logfile: &str) -> Result<(), fern::InitError> {
+    fern::Dispatch::new()
+        .format(|out, message, record| {
+            out.finish(format_args!(
+                "{}[{}][{}] {}",
+                chrono::Local::now().format("[%Y-%m-%d][%H:%M:%S]"),
+                record.target(),
+                record.level(),
+                message
+            ))
+        })
+        .level(log::LevelFilter::Info)
+        .chain(std::io::stdout())
+        .chain(fern::log_file(logfile)?)
+        .apply()?;
+    Ok(())
+}
+
 fn main() {
+
 
     // Read command line arguments if there are any.
     let matches = App::new("Womilliam")
@@ -236,9 +258,20 @@ fn main() {
                 .short("p")
                 .long("port")
                 .value_name("PORT")
-                .help("Sets the servers port number."),
+                .help("Sets the servers port number. Defaults to 6142"),
+        )
+        .arg(
+            Arg::with_name("logfile")
+                .short("l")
+                .long("logfile")
+                .value_name("FILE")
+                .help("Specify a file for logs. Defaults to chat.log"),
         )
         .get_matches();
+
+    // Initialize logging
+    let logfile = matches.value_of("logfile").unwrap_or("chat.log");
+    let _ = setup_logger(logfile);
 
     // Bind to a port and listen to connections.
     let port = matches
@@ -259,10 +292,10 @@ fn main() {
             Ok(())
         })
         .map_err(|err| {
-            println!("Connection error: {:?}", err);
+            error!("Connection error: {:?}", err);
         });
 
-    println!("Server listens on port {}", port);
+    info!("Server listens on port {}", port);
 
     tokio::run(server);
 
